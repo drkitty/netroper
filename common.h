@@ -10,3 +10,6 @@
 
 
 #define print(x) fputs((x), stdout)
+
+#define str_(x) #x
+#define str(x) str_(x)
