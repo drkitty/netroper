@@ -23,13 +23,18 @@
 
 int verbosity;
 
-pid_t child = 0;
+
+struct {
+    pid_t pid;
+    struct wpa_ctrl* cmd;
+    struct wpa_ctrl* ev;
+} wpa_supp;
 
 
 void kill_child()
 {
-    if (child != 0)
-        kill(child, SIGTERM);
+    if (wpa_supp.pid != 0)
+        kill(wpa_supp.pid, SIGTERM);
 }
 
 
@@ -112,10 +117,8 @@ void rmdir_recursive(const char* const path)
 }
 
 
-void net_manual_connect(const char* const iface)
+void wpa_supp_connect(const char* const iface)
 {
-    v1("Scanning...");
-
     rmdir_recursive(NR_DIR);
 
     if (mkdir(NR_DIR, 0700) != 0)
@@ -141,8 +144,8 @@ void net_manual_connect(const char* const iface)
             fatal(E_RARE, "BUG");
     }
 
-    child = fork();
-    if (child == 0) {
+    wpa_supp.pid = fork();
+    if (wpa_supp.pid == 0) {
         execlp(
             "wpa_supplicant", "wpa_supplicant",
             "-c", "/dev/null",
@@ -157,33 +160,46 @@ void net_manual_connect(const char* const iface)
     }
 
     v1("Connecting to wpa_supplicant");
-    struct wpa_ctrl* wc_cmd;
     do {
-        wc_cmd = wpa_ctrl_open(WPA_CTRL);
-    } while (wc_cmd == NULL);
-    struct wpa_ctrl* wc_ev = wpa_ctrl_open(WPA_CTRL);
-    if (wc_ev == NULL)
+        wpa_supp.cmd = wpa_ctrl_open(WPA_CTRL);
+    } while (wpa_supp.cmd == NULL);
+    wpa_supp.ev = wpa_ctrl_open(WPA_CTRL);
+    if (wpa_supp.ev == NULL)
         fatal(E_RARE, "Can't open wpa_supplicant control sockets");
-    if (wpa_ctrl_attach(wc_ev) != 0)
+    if (wpa_ctrl_attach(wpa_supp.ev) != 0)
         fatal(E_RARE, "Can't register as event monitor");
+}
+
+
+void wpa_supp_disconnect()
+{
+    v1("Disconnecting from wpa_supplicant");
+    if (wpa_ctrl_detach(wpa_supp.ev) != 0)
+        warning("Can't unregister event monitor");
+    wpa_ctrl_close(wpa_supp.ev);
+    wpa_ctrl_close(wpa_supp.cmd);
+
+    v1("Waiting for wpa_supplicant to exit");
+    while (waitpid(wpa_supp.pid, NULL, 0) != wpa_supp.pid) { /* spin */ }
+}
+
+
+void net_manual_connect(const char* const iface)
+{
+    v1("Scanning...");
+
+    wpa_supp_connect(iface);
 
     {
         v1("Sending PING");
         char reply[4096];
         size_t reply_len = sizeof(reply);
-        wpa_ctrl_request(wc_cmd, "PING", sizeof("PING"), reply, &reply_len,
-            NULL);
+        wpa_ctrl_request(wpa_supp.cmd, "PING", sizeof("PING"), reply,
+            &reply_len, NULL);
         v1("Received \"%s\"", reply);
     }
 
-    v1("Disconnecting from wpa_supplicant");
-    if (wpa_ctrl_detach(wc_ev) != 0)
-        warning("Can't unregister event monitor");
-    wpa_ctrl_close(wc_ev);
-    wpa_ctrl_close(wc_cmd);
-
-    v1("Waiting for wpa_supplicant to exit");
-    while (waitpid(child, NULL, 0) != child) { /* spin */ }
+    wpa_supp_disconnect();
 }
 
 
