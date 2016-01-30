@@ -3,6 +3,8 @@
 
 #include <errno.h>
 #include <ftw.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -11,6 +13,7 @@
 #include <unistd.h>
 
 #include "fail.h"
+#include "wpa_ctrl.h"
 
 
 #define MAX_VERBOSITY 3
@@ -19,6 +22,20 @@
 
 
 int verbosity;
+
+pid_t child = 0;
+
+
+void handle_sig(int signum)
+{
+    (void)signum;
+
+    char err[] = "!!! Killing wpa_supplicant and exiting !!!\n";
+    write(STDERR_FILENO, err, sizeof(err));
+
+    if (child != 0)
+        kill(child, SIGTERM);
+}
 
 
 struct args {
@@ -98,9 +115,25 @@ void net_manual_connect(const char* const iface)
     if (mkdir(NR_DIR, 0700) != 0)
         fatal_e(E_COMMON, "Can't create " NR_DIR);
 
-    pid_t p = fork();
-    if (p == 0) {
-        // child
+    {
+        struct sigaction sa = {
+            .sa_handler = handle_sig,
+            .sa_flags = 0,
+        };
+        if (sigemptyset(&sa.sa_mask) != 0)
+            fatal_e(E_RARE, "BUG");
+        if (sigaddset(&sa.sa_mask, SIGINT) != 0)
+            fatal_e(E_RARE, "BUG");
+        if (sigaddset(&sa.sa_mask, SIGTERM) != 0)
+            fatal_e(E_RARE, "BUG");
+        if (sigaction(SIGINT, &sa, NULL) != 0)
+            fatal_e(E_RARE, "Can't register SIGINT handler");
+        if (sigaction(SIGTERM, &sa, NULL) != 0)
+            fatal_e(E_RARE, "Can't register SIGTERM handler");
+    }
+
+    child = fork();
+    if (child == 0) {
         execlp(
             "wpa_supplicant", "wpa_supplicant",
             "-c", "/dev/null",
@@ -114,11 +147,33 @@ void net_manual_connect(const char* const iface)
         fatal_e(E_RARE, "Can't run wpa_supplicant");
     }
 
-    /*struct wpa_ctrl* wc = wpa_ctrl_open(WPA_CTRL);*/
-    /*if (wc == NULL)*/
-        /*fatal(E_RARE, "Can't open wpa_supplicant control socket");*/
+    sleep(1);
 
-    while (waitpid(p, NULL, 0) != p) { /* spin */ }
+    v1("Connecting to wpa_supplicant");
+    struct wpa_ctrl* wc_cmd = wpa_ctrl_open(WPA_CTRL);
+    struct wpa_ctrl* wc_ev = wpa_ctrl_open(WPA_CTRL);
+    if (wc_cmd == NULL || wc_ev == NULL)
+        fatal(E_RARE, "Can't open wpa_supplicant control sockets");
+    if (wpa_ctrl_attach(wc_ev) != 0)
+        fatal(E_RARE, "Can't register as event monitor");
+
+    {
+        v1("Sending PING");
+        char reply[4096];
+        size_t reply_len;
+        wpa_ctrl_request(wc_cmd, "PING", sizeof("PING"), reply, &reply_len,
+            NULL);
+        v1("Received \"%s\"", reply);
+    }
+
+    v1("Disconnecting from wpa_supplicant");
+    if (wpa_ctrl_detach(wc_ev) != 0)
+        warning("Can't unregister event monitor");
+    wpa_ctrl_close(wc_ev);
+    wpa_ctrl_close(wc_cmd);
+
+    v1("Waiting for wpa_supplicant to exit");
+    while (waitpid(child, NULL, 0) != child) { /* spin */ }
 }
 
 
