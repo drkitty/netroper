@@ -170,7 +170,7 @@ void net_manual_connect(const char* const iface)
     {
         v1("Sending PING");
         char reply[4096];
-        size_t reply_len;
+        size_t reply_len = sizeof(reply);
         wpa_ctrl_request(wc_cmd, "PING", sizeof("PING"), reply, &reply_len,
             NULL);
         v1("Received \"%s\"", reply);
