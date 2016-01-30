@@ -35,7 +35,7 @@ enum {
 #define wpa_debug_open_file(p) do { } while (0)
 #define wpa_debug_close_file() do { } while (0)
 #define wpa_debug_setup_stdout() do { } while (0)
-#define wpa_dbg(args...) do { } while (0)
+#define wpa_dbg(...) do { } while (0)
 
 static inline int wpa_debug_reopen_file(void)
 {
@@ -153,7 +153,7 @@ void wpa_hexdump_ascii_key(int level, const char *title, const void *buf,
  * needed in the control interface while wpa_msg() has to be used for anything
  * that needs to shown to control interface monitors.
  */
-#define wpa_dbg(args...) wpa_msg(args)
+#define wpa_dbg(...) wpa_msg(__VA_ARGS__)
 
 #endif /* CONFIG_NO_STDOUT_DEBUG */
 

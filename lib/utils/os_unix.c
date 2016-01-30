@@ -6,10 +6,15 @@
  * See README for more details.
  */
 
+#define _POSIX_C_SOURCE 200112L
+#define _XOPEN_SOURCE
+#define _XOPEN_SOURCE_EXTENDED
+
 #include "includes.h"
 
 #include <time.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #ifdef ANDROID
 #include <sys/capability.h>

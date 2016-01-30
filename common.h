@@ -1,7 +1,6 @@
 #pragma once
 
 
-#define _BSD_SOURCE 1
 #define _POSIX_C_SOURCE 2
 #define _XOPEN_SOURCE 500
 
