@@ -26,6 +26,13 @@ int verbosity;
 pid_t child = 0;
 
 
+void kill_child()
+{
+    if (child != 0)
+        kill(child, SIGTERM);
+}
+
+
 void handle_sig(int signum)
 {
     (void)signum;
@@ -33,8 +40,7 @@ void handle_sig(int signum)
     char err[] = "!!! Killing wpa_supplicant and exiting !!!\n";
     write(STDERR_FILENO, err, sizeof(err));
 
-    if (child != 0)
-        kill(child, SIGTERM);
+    kill_child();
 }
 
 
@@ -127,9 +133,12 @@ void net_manual_connect(const char* const iface)
         if (sigaddset(&sa.sa_mask, SIGTERM) != 0)
             fatal_e(E_RARE, "BUG");
         if (sigaction(SIGINT, &sa, NULL) != 0)
-            fatal_e(E_RARE, "Can't register SIGINT handler");
+            fatal_e(E_RARE, "BUG");
         if (sigaction(SIGTERM, &sa, NULL) != 0)
-            fatal_e(E_RARE, "Can't register SIGTERM handler");
+            fatal_e(E_RARE, "BUG");
+
+        if (atexit(kill_child) != 0)
+            fatal(E_RARE, "BUG");
     }
 
     child = fork();
@@ -147,12 +156,13 @@ void net_manual_connect(const char* const iface)
         fatal_e(E_RARE, "Can't run wpa_supplicant");
     }
 
-    sleep(1);
-
     v1("Connecting to wpa_supplicant");
-    struct wpa_ctrl* wc_cmd = wpa_ctrl_open(WPA_CTRL);
+    struct wpa_ctrl* wc_cmd;
+    do {
+        wc_cmd = wpa_ctrl_open(WPA_CTRL);
+    } while (wc_cmd == NULL);
     struct wpa_ctrl* wc_ev = wpa_ctrl_open(WPA_CTRL);
-    if (wc_cmd == NULL || wc_ev == NULL)
+    if (wc_ev == NULL)
         fatal(E_RARE, "Can't open wpa_supplicant control sockets");
     if (wpa_ctrl_attach(wc_ev) != 0)
         fatal(E_RARE, "Can't register as event monitor");
